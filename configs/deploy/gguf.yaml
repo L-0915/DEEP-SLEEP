@@ -1,0 +1,13 @@
+model_path: "output/model"
+output_dir: "output/gguf"
+
+quantization_levels:
+  - name: "Q4_K_M"
+    description: "4-bit, good quality/size tradeoff"
+    expected_size_mb: 1200
+  - name: "Q5_K_M"
+    description: "5-bit, better quality"
+    expected_size_mb: 1500
+  - name: "Q8_0"
+    description: "8-bit, near-lossless"
+    expected_size_mb: 2200

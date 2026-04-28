@@ -1,0 +1,28 @@
+vocab_size: 64000
+tokenizer_type: bpe
+pre_tokenizer: bytes
+normalizer: nfkc
+
+special_tokens:
+  pad_token: "<pad>"
+  eos_token: "<|im_end|>"
+  unk_token: "<unk>"
+  bos_token: "<|im_start|>system"
+  additional_special_tokens:
+    - "<s>"
+    - "</s>"
+    - "<|im_start|>"
+    - "<|im_end|>"
+    - "<|assistant|"
+    - "<|tool_call|>"
+    - "<|tool_response|>"
+    - "<|thinking|>"
+    - "<|summary|>"
+
+training_data_distribution:
+  zh_sleep_medicine: 0.40
+  en_sleep_medicine: 0.25
+  zh_general: 0.25
+  en_general: 0.10
+
+training_corpus_size_gb: 10

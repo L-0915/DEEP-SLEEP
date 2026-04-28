@@ -1,0 +1,31 @@
+model_config: "configs/model/deepsleep_2b.yaml"
+sft_checkpoint: "checkpoints/sft"
+
+data_path: "data/dpo/train.jsonl"
+val_data_path: "data/dpo/val.jsonl"
+seq_length: 4096
+global_batch_size: 64
+micro_batch_size: 8
+
+beta: 0.1
+loss_type: "sigmoid"
+
+learning_rate: 5.0e-7
+weight_decay: 0.01
+lr_scheduler: "cosine"
+warmup_steps: 50
+num_train_epochs: 2
+gradient_clipping: 1.0
+
+dtype: bf16
+
+output_dir: "checkpoints/dpo"
+save_steps: 200
+save_total_limit: 2
+eval_steps: 100
+logging_steps: 5
+
+wandb:
+  enabled: true
+  project: "deepsleep"
+  run_name: "dpo-2b"

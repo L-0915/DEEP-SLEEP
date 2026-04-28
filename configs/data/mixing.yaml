@@ -1,0 +1,41 @@
+total_target_tokens: 300_000_000_000
+
+categories:
+  - name: sleep_domain
+    proportion: 0.40
+    sub_categories:
+      - papers: 0.60
+      - guidelines: 0.20
+      - textbooks: 0.10
+      - websites: 0.10
+
+  - name: general_medical
+    proportion: 0.15
+    sub_categories:
+      - internal_medicine: 0.40
+      - physiology: 0.30
+      - pharmacology: 0.30
+
+  - name: zh_general
+    proportion: 0.25
+    sub_categories:
+      - wikipedia_zh: 0.30
+      - c4_zh: 0.40
+      - books_zh: 0.30
+
+  - name: en_general
+    proportion: 0.15
+    sub_categories:
+      - wikipedia_en: 0.30
+      - c4_en: 0.40
+      - openwebtext: 0.30
+
+  - name: code_structured
+    proportion: 0.05
+    sub_categories:
+      - json_processing: 0.40
+      - table_data: 0.30
+      - medical_codes: 0.30
+
+shard_size_tokens: 10_000_000_000
+output_format: "bin"

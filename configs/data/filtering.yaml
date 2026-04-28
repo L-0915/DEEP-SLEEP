@@ -1,0 +1,21 @@
+domain_scoring:
+  keywords_path: "data/keywords"
+  min_keyword_score: 0.2
+
+  scoring_method: "bm25"
+
+  buckets:
+    high: 0.8
+    medium: 0.5
+    low: 0.2
+    irrelevant: 0.0
+
+mixing:
+  sleep_domain: 0.40
+  general_medical: 0.15
+  zh_general: 0.25
+  en_general: 0.15
+  code_structured: 0.05
+
+  sleep_domain_high_relevance_upsample: 2.0
+  sleep_domain_medium_relevance_upsample: 1.5

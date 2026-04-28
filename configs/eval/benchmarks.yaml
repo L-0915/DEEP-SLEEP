@@ -1,0 +1,36 @@
+model_path: null
+tokenizer_path: null
+
+benchmarks:
+  sleep_med_qa:
+    enabled: true
+    data_path: "data/eval/sleep_med_qa.jsonl"
+    num_few_shot: 0
+
+  mmlu:
+    enabled: true
+    subjects: ["clinical_knowledge", "anatomy", "medical_genetics"]
+    num_few_shot: 5
+
+  c_eval:
+    enabled: true
+    data_path: null
+    subjects: ["clinical_medicine"]
+    num_few_shot: 5
+
+  cmmlu:
+    enabled: true
+    subjects: ["chinese_clinical_medicine", "chinese_pharmacology"]
+    num_few_shot: 5
+
+judge:
+  enabled: false
+  model: "gpt-4o"
+  api_key: null
+  num_samples: 200
+
+safety:
+  enabled: true
+  test_prompts_path: "data/eval/safety_prompts.jsonl"
+
+output_dir: "output/eval_results"

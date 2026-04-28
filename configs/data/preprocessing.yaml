@@ -1,0 +1,42 @@
+steps:
+  dedup:
+    minhash:
+      enabled: true
+      n_grams: 5
+      num_perm: 128
+      threshold: 0.7
+    exact:
+      enabled: true
+      n_gram_size: 5
+    url:
+      enabled: true
+
+  quality:
+    language_detection:
+      enabled: true
+      model_path: "lid.176.bin"
+      allowed_languages: ["zh", "en"]
+      min_confidence: 0.8
+    perplexity:
+      enabled: true
+      model_path: null
+      max_perplexity: 1000.0
+    document_quality:
+      enabled: true
+      min_avg_sentence_length: 5
+      max_avg_sentence_length: 200
+      max_special_char_ratio: 0.3
+      max_repetition_ratio: 0.3
+      min_length: 100
+
+  safety:
+    enabled: true
+    mask_pii: true
+    block_harmful: true
+    min_length_after_cleaning: 50
+
+  format:
+    enabled: true
+    normalize_unicode: true
+    normalize_whitespace: true
+    remove_control_chars: true
