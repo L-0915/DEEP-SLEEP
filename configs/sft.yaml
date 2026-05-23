@@ -1,0 +1,47 @@
+# DeepSleep SFT (Supervised Fine-Tuning) Configuration
+# Usage: bash scripts/run/run_sft.sh
+#        or: python trainer/train_sft.py --config configs/sft.yaml
+
+# ==================== Model ====================
+model:
+  hidden_size: 768
+  num_hidden_layers: 8
+  num_heads: 8
+  num_kv_heads: 4
+  head_dim: 96
+  vocab_size: 7200
+  max_seq_len: 2048
+
+  # MoE
+  use_moe: true
+  num_experts: 8
+  num_shared_experts: 0
+  num_experts_per_tok: 2
+
+# ==================== Data ====================
+data:
+  data_path: data/sft/xiaoxi/xiaoxi_sft.jsonl
+  tokenizer_path: checkpoints/tokenizer
+  from_weight: out/pretrain/final   # pretrain checkpoint
+
+# ==================== Training ====================
+training:
+  save_dir: out/sft
+  save_weight: sft
+  epochs: 3
+  batch_size: 16
+  learning_rate: 1.0e-5      # much lower than pretrain
+  device: cuda:0
+  dtype: bfloat16
+  num_workers: 8
+  accumulation_steps: 4
+  grad_clip: 1.0
+  log_interval: 100
+  save_interval: 1000
+
+  # Resume
+  from_resume: false
+
+  # Logging
+  use_wandb: false
+  wandb_project: DeepSleep-SFT

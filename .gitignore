@@ -7,28 +7,32 @@ dist/
 build/
 *.egg
 
-# Model weights
+# Model weights & checkpoints
 *.bin
 *.pt
 *.safetensors
 *.gguf
 *.pth
+out/
 
-# Data
+# Data (large files — keep structure, ignore content)
 data/raw/
 data/processed/
 data/tokenized/
-data/sft/
-data/dpo/
 data/cleaned/
 data/keywords/
 data/tokenizer_corpus/
-data/IndustryCorpus_medicine/
 
-# Checkpoints & outputs
-checkpoints/
-output/
+# Keep tokenizer checkpoint
+!checkpoints/tokenizer/
+
+# HF cache
+.hf_cache/
+
+# Logs & monitoring
 wandb/
+runs/
+*.log
 
 # IDE
 .idea/
@@ -42,14 +46,13 @@ Thumbs.db
 
 # Env
 .env
-*.log
 
 # Jupyter
 .ipynb_checkpoints/
 
 # Gradio
 flagged/
-
-# Claude / IDE
-.claude/
 .gradio/
+
+# Claude / internal
+.claude/

@@ -11,9 +11,8 @@ import torch
 import json
 import gradio as gr
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
-from model.config import DeepSleepConfig
-from model.modeling_deepsleep import DeepSleepForCausalLM
+sys.path.insert(0, os.path.dirname(__file__))
+from model.model_deepsleep import DeepSleepConfig, DeepSleepForCausalLM
 from transformers import AutoTokenizer
 
 # ---- 中文 decode 修复 ----
@@ -44,27 +43,7 @@ class DeepSleepEngine:
         with open(config_path) as f:
             cj = json.load(f)
 
-        config = DeepSleepConfig(
-            vocab_size=cj.get("vocab_size", 32000),
-            d_model=cj.get("d_model", 768),
-            n_layers=cj.get("n_layers", 8),
-            n_heads=cj.get("n_heads", 8),
-            n_kv_heads=cj.get("n_kv_heads", 4),
-            max_position_embeddings=cj.get("max_position_embeddings", 2048),
-            num_experts=cj.get("num_experts", 6),
-            num_routed_experts=cj.get("num_routed_experts", 6),
-            num_shared_experts=cj.get("num_shared_experts", 0),
-            top_k=cj.get("top_k", 2),
-            moe_intermediate_size=cj.get("moe_intermediate_size", 1472),
-            aux_loss_coeff=cj.get("aux_loss_coeff", 0.1),
-            z_loss_coeff=cj.get("z_loss_coeff", 0.01),
-            use_flash_attention=cj.get("use_flash_attention", False),
-            tie_word_embeddings=cj.get("tie_word_embeddings", True),
-            layer_pattern=cj.get("layer_pattern", "all_moe"),
-            pad_token_id=self.tokenizer.pad_token_id,
-            bos_token_id=self.tokenizer.bos_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
-        )
+        config = DeepSleepConfig.from_legacy(cj)
         model = DeepSleepForCausalLM(config)
         state_dict = torch.load(
             os.path.join(model_path, "pytorch_model.bin"),
@@ -85,9 +64,9 @@ class DeepSleepEngine:
         # few-shot 上下文：通过示例让模型自然学会身份和回答风格
         context = (
             "问：你是谁？\n"
-            "答：我是DeepSleep（深睡），由水木孝辰个人开发的睡眠健康AI助手。\n"
+            "答：我是DeepSleep（深睡），由L-0915个人开发的睡眠健康AI助手。\n"
             "问：你好\n"
-            "答：你好！我是DeepSleep，由水木孝辰开发的睡眠健康AI助手。有什么睡眠相关的问题可以问我！\n"
+            "答：你好！我是DeepSleep，由L-0915开发的睡眠健康AI助手。有什么睡眠相关的问题可以问我！\n"
             "问：失眠怎么办？\n"
             "答：失眠可以从以下几个方面改善：1.保持规律作息，每天固定时间上床和起床；2.睡前避免使用手机等电子设备；3.营造安静、黑暗、凉爽的睡眠环境；4.适当运动，但避免睡前剧烈运动；5.如果持续失眠，建议就医咨询。\n"
         )
@@ -145,7 +124,7 @@ EXAMPLE_QUESTIONS = [
 def create_app():
     model_path = os.environ.get(
         "DEEPSLEEP_MODEL",
-        "/root/autodl-tmp/data/deepsleep_model_lora_v1/final_model"
+        os.path.join(os.path.dirname(__file__), "checkpoints", "deepsleep-final")
     )
     print(f"Loading model from {model_path}...")
     engine = DeepSleepEngine(model_path)
@@ -257,9 +236,19 @@ def create_app():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="DeepSleep Chat Web UI")
+    parser.add_argument("--model", type=str, default=None, help="模型路径 (默认: checkpoints/deepsleep-final 或 DEEPSLEEP_MODEL 环境变量)")
+    parser.add_argument("--port", type=int, default=6006, help="服务端口 (默认: 6006)")
+    parser.add_argument("--share", action="store_true", help="生成 Gradio 公网链接")
+    args = parser.parse_args()
+
+    if args.model:
+        os.environ["DEEPSLEEP_MODEL"] = args.model
+
     app = create_app()
     app.launch(
         server_name="0.0.0.0",
-        server_port=6006,
-        share=False,
+        server_port=args.port,
+        share=args.share,
     )

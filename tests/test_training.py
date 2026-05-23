@@ -1,147 +1,87 @@
-"""Tests for training utilities and dataset classes."""
+"""Test training utilities: LR schedule, init_model, checkpoint, SkipBatchSampler.
 
-import pytest
+Run: cd deepsleep && python tests/test_training.py
+"""
+
+import os
+import sys
+import tempfile
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
 import torch
 
-
-class TestPretrainDataset:
-    """Test pretraining dataset."""
-
-    def test_dataset_length(self):
-        """Test dataset reports correct length."""
-        from src.data.dataset.pretrain_dataset import PretrainDataset
-
-        # This test requires tokenized data files to exist
-        # It's a structural test to ensure the class can be instantiated
-        assert hasattr(PretrainDataset, "__init__")
-        assert hasattr(PretrainDataset, "__len__")
-        assert hasattr(PretrainDataset, "__getitem__")
+TOKENIZER_PATH = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "tokenizer")
 
 
-class TestSFTDataset:
-    """Test SFT dataset."""
-
-    def test_sft_dataset_init(self):
-        """Test SFT dataset can be instantiated."""
-        from src.data.dataset.sft_dataset import SFTDataset
-
-        assert hasattr(SFTDataset, "__init__")
-        assert hasattr(SFTDataset, "__getitem__")
-
-
-class TestDPODataset:
-    """Test DPO dataset."""
-
-    def test_dpo_dataset_init(self):
-        """Test DPO dataset can be instantiated."""
-        from src.data.dataset.dpo_dataset import DPODataset
-
-        assert hasattr(DPODataset, "__init__")
-        assert hasattr(DPODataset, "__getitem__")
+def test_lr_schedule():
+    from trainer.trainer_utils import get_lr
+    total = 1000
+    lr = 5e-4
+    # Warmup: first 10% = 100 steps
+    assert get_lr(0, total, lr) < get_lr(50, total, lr) < get_lr(100, total, lr)
+    assert abs(get_lr(100, total, lr) - lr) < 1e-6
+    # Decay after warmup
+    assert get_lr(500, total, lr) < lr
+    assert get_lr(999, total, lr) < get_lr(500, total, lr)
+    print("  [PASS] LR warmup + cosine decay")
 
 
-class TestLossFunctions:
-    """Test loss computation functions."""
-
-    def test_lm_loss(self):
-        """Test language model loss computation."""
-        from src.training.loss import compute_lm_loss
-
-        batch_size, seq_len, vocab_size = 2, 16, 100
-        logits = torch.randn(batch_size, seq_len, vocab_size)
-        labels = torch.randint(0, vocab_size, (batch_size, seq_len))
-
-        loss = compute_lm_loss(logits, labels)
-        assert loss.dim() == 0  # scalar
-        assert loss.item() > 0
-
-    def test_lm_loss_with_ignore(self):
-        """Test that ignore_index works correctly."""
-        from src.training.loss import compute_lm_loss
-
-        batch_size, seq_len, vocab_size = 2, 16, 100
-        logits = torch.randn(batch_size, seq_len, vocab_size)
-        labels = torch.randint(0, vocab_size, (batch_size, seq_len))
-        labels[:, :8] = -100  # ignore first half
-
-        loss = compute_lm_loss(logits, labels)
-        assert loss.dim() == 0
-
-    def test_dpo_loss(self):
-        """Test DPO loss computation."""
-        from src.training.loss import compute_dpo_loss
-
-        batch_size = 4
-        policy_chosen = torch.randn(batch_size) * 2
-        policy_rejected = torch.randn(batch_size) * 2
-        ref_chosen = torch.randn(batch_size) * 2
-        ref_rejected = torch.randn(batch_size) * 2
-
-        loss = compute_dpo_loss(
-            policy_chosen, policy_rejected,
-            ref_chosen, ref_rejected,
-            beta=0.1,
-        )
-        assert loss.dim() == 0
+def test_init_model():
+    """init_model creates real model with real tokenizer on GPU."""
+    from model.model_deepsleep import DeepSleepConfig
+    from trainer.trainer_utils import init_model
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    cfg = DeepSleepConfig(d_model=768, n_layers=10, vocab_size=7200)
+    model, tokenizer = init_model(cfg, "none", TOKENIZER_PATH, device)
+    assert model is not None
+    assert tokenizer is not None
+    assert tokenizer.vocab_size == 7200
+    total = sum(p.numel() for p in model.parameters()) / 1e6
+    print(f"  [PASS] init_model: ~{total:.1f}M params, tokenizer OK")
 
 
-class TestLRScheduler:
-    """Test learning rate schedulers."""
-
-    def test_cosine_schedule(self):
-        """Test cosine schedule with warmup."""
-        from src.training.schedulers import get_cosine_schedule_with_warmup
-
-        optimizer = torch.optim.AdamW([torch.randn(10)], lr=3e-4)
-        scheduler = get_cosine_schedule_with_warmup(
-            optimizer, num_warmup_steps=100, num_training_steps=1000
-        )
-
-        # LR should increase during warmup
-        lrs = []
-        for _ in range(50):
-            scheduler.step()
-            lrs.append(optimizer.param_groups[0]["lr"])
-        assert lrs[-1] > lrs[0]
-
-        # LR should decrease after warmup
-        for _ in range(500):
-            scheduler.step()
-            final_lr = optimizer.param_groups[0]["lr"]
-        assert final_lr < 3e-4
+def test_checkpoint_real():
+    """Checkpoint save/load with real production model."""
+    from model.model_deepsleep import DeepSleepConfig, DeepSleepForCausalLM
+    from trainer.trainer_utils import lm_checkpoint
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    cfg = DeepSleepConfig(d_model=768, n_layers=10, vocab_size=7200, use_moe=True,
+                          num_experts=8, num_shared_experts=2)
+    model = DeepSleepForCausalLM(cfg).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lm_checkpoint(cfg, model=model, optimizer=optimizer, epoch=0, step=100,
+                      save_dir=tmpdir, weight="test")
+        ckp = os.path.join(tmpdir, "test_768_moe.pth")
+        assert os.path.exists(ckp)
+        size = os.path.getsize(ckp) / 1024 / 1024
+        data = lm_checkpoint(cfg, save_dir=tmpdir, weight="test")
+        assert data["epoch"] == 0
+        assert data["step"] == 100
+        model2 = DeepSleepForCausalLM(cfg).to(device)
+        model2.load_state_dict(data["model"], strict=False)
+    print(f"  [PASS] checkpoint: save/load {size:.0f}MB with real model")
 
 
-class TestCheckpoint:
-    """Test checkpoint management."""
+def test_skip_batch_sampler():
+    from trainer.trainer_utils import SkipBatchSampler
+    indices = list(range(100))
+    sampler = SkipBatchSampler(indices, batch_size=8, skip_batches=3)
+    batches = list(sampler)
+    assert len(batches) == 100 // 8 - 3 + 1  # ceil(100/8)=13, skip 3, but 13*8>100 so last batch smaller
+    assert batches[0] == [24, 25, 26, 27, 28, 29, 30, 31]
+    print(f"  [PASS] SkipBatchSampler: skip=3, bs=8, got {len(batches)} batches")
 
-    def test_checkpoint_save_load(self):
-        """Test saving and loading model checkpoint."""
-        from src.model.config import DeepSleepConfig
-        from src.model.modeling_deepsleep import DeepSleepForCausalLM
-        from src.utils.checkpoint import save_checkpoint, load_checkpoint
 
-        config = DeepSleepConfig(
-            d_model=256,
-            n_layers=1,
-            n_heads=4,
-            n_kv_heads=2,
-            vocab_size=100,
-            max_position_embeddings=128,
-            num_experts=2,
-            num_routed_experts=1,
-            top_k=1,
-        )
-        model = DeepSleepForCausalLM(config)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            save_checkpoint(model, optimizer, None, step=100, loss=1.5, output_dir=tmpdir)
-            load_checkpoint(model, optimizer, None, checkpoint_dir=tmpdir)
-
-    def test_find_latest_checkpoint(self):
-        """Test finding latest checkpoint."""
-        from src.utils.checkpoint import find_latest_checkpoint
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # No checkpoints
-            assert find_latest_checkpoint(tmpdir) is None
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Training Utils Tests")
+    print("=" * 60)
+    test_lr_schedule()
+    test_init_model()
+    test_checkpoint_real()
+    test_skip_batch_sampler()
+    print("\n" + "=" * 60)
+    print("ALL PASSED")
+    print("=" * 60)

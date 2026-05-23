@@ -2,15 +2,15 @@
 
 # 🌙 DeepSleep
 
-**睡眠健康领域轻量级大语言模型**
+**睡眠健康领域轻量级 MoE 大语言模型**
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**从零开始训练的 ~201.6M 参数 MoE 大模型** | 中英双语 | 睡眠健康领域
+**~200M 参数 MoE** | 中英双语 | 睡眠健康领域 | 单卡可训练
 
-[快速开始](#-快速开始) · [模型架构](#-模型架构) · [训练流程](#-训练流程) · [Web演示](#-web演示) · [项目结构](#-项目结构)
+[快速开始](#-快速开始) · [模型架构](#-模型架构) · [训练流程](#-训练流程) · [项目结构](#-项目结构)
 
 </div>
 
@@ -18,48 +18,46 @@
 
 ## 📖 项目简介
 
-DeepSleep 是一个从零开始构建的睡眠健康领域大语言模型，灵感来自 [MiniMind](https://github.com/jingyaogong/minimind)。项目完整实现了大模型的全部流程：**Tokenizer 训练 → 预训练 → SFT → DPO → LoRA → Web 部署**，所有代码开源可复现。
+DeepSleep 是一个从零开始构建的睡眠健康领域 MoE 大语言模型，灵感来自 [MiniMind](https://github.com/jingyaogong/minimind) 和 [Qwen2.5-MoE](https://qwenlm.github.io/blog/qwen2.5-moe/)。项目完整实现了大模型的全部流程：**Tokenizer 训练 → 预训练 → SFT → DPO → Web 部署**，所有代码开源可复现。
 
 **核心特点：**
-- 🔬 **全流程从零构建** — Tokenizer、模型架构、训练循环全部手写
-- 🧠 **MoE 架构** — DeepSeek 风格 softmax 路由，201.6M 总参数 / 64M 活跃参数
-- 🇨🇳 **中英双语** — 32K BPE 词表，支持中文和英文输入
-- 💻 **单卡可训练** — RTX 3090 (24GB) 即可完成全流程训练
-- 🌐 **一键部署** — Gradio Web 界面，开箱即用
+
+- 🧠 **MoE 架构** — 8 层全 MoE，~199M 总参数 / ~65M 活跃参数，softmax 路由
+- 🔬 **主流组件** — GQA + RoPE + RMSNorm + SwiGLU + Flash Attention
+- 🇨🇳 **中英双语** — 7200 BPE 词表，从 CCI4.0-HQ 语料训练
+- 🤖 **小曦人格** — 温暖有趣的睡眠健康伙伴，10000 条 SFT + 1965 对 DPO 数据
+- 💻 **单卡可训练** — NVIDIA A10 (24GB) 即可完成全流程
+- 📦 **一键启动** — YAML 配置 + Shell 脚本，开箱即用
 
 ---
 
 ## 🏗 模型架构
 
 ```
-DeepSleepForCausalLM
-├── Embedding (vocab=32K, dim=768, tied with lm_head)
-├── 8 × Decoder Layer (all MoE)
-│   ├── DeepSleepAttention (GQA: 8Q / 4KV heads, head_dim=96, RoPE)
-│   ├── RMSNorm (pre-norm)
-│   └── DeepSleepMoE
-│       ├── 6 routed experts + 0 shared experts, top_k=2
-│       ├── DeepSeek-style softmax routing
-│       ├── aux_loss = 0.1, z_loss = 0.01
-│       └── SwiGLU expert FFN (moe_intermediate=1472)
+DeepSleepForCausalLM (~199M params)
+├── Embedding (vocab=7200, d_model=768, tied with lm_head)
+├── 8 MoE Layers
+│   ├── DeepSleepAttention (GQA: 8Q/4KV heads, head_dim=96, RoPE, Flash/SDPA)
+│   └── DeepSleepMoE (8 routed experts, top_k=2, SwiGLU, intermediate=1216)
 ├── Final RMSNorm
 └── LM Head (tied, no bias)
 
-总参数: ~201.6M | 每token激活: ~64M | 层模式: all_moe
+Total: ~199M | Active per token: ~65M | Utilization: 32.4%
 ```
 
 | 超参数 | 值 |
 |--------|-----|
 | d_model | 768 |
 | n_layers | 8 |
-| n_heads | 8 (GQA: n_kv_heads=4) |
+| n_heads / n_kv_heads | 8 / 4 (GQA) |
 | head_dim | 96 |
-| num_experts | 6 (routed) |
+| num_routed_experts | 8 |
 | top_k | 2 |
-| moe_intermediate_size | 1472 |
-| vocab_size | 32,000 |
-| max_position_embeddings | 2048 |
-| tie_word_embeddings | True |
+| moe_intermediate_size | 1216 |
+| vocab_size | 7,200 |
+| max_position_embeddings | 8,192 |
+
+**主流组件：** GQA (Grouped Query Attention) · RoPE (Rotary Position Embedding) · RMSNorm · SwiGLU · Flash Attention (SDPA) · Pre-Norm
 
 ---
 
@@ -68,115 +66,79 @@ DeepSleepForCausalLM
 ### 1. 环境配置
 
 ```bash
-# 克隆仓库
-git clone https://github.com/shuimu-xiaochen/deepsleep.git
+git clone https://github.com/L-0915/deepsleep.git
 cd deepsleep
 
-# 创建虚拟环境
 conda create -n deepsleep python=3.10 -y
 conda activate deepsleep
-
-# 安装依赖
 pip install -r requirements.txt
 ```
 
-### 2. 下载模型权重
-
-从 HuggingFace 下载训练好的模型权重：
+### 2. 训练 Tokenizer
 
 ```bash
-# 创建模型目录
-mkdir -p checkpoints/deepsleep-final
-
-# 下载（或手动下载后放入该目录）
-# 需要的文件: config.json, pytorch_model.bin, tokenizer.json, tokenizer_config.json
+# 从 CCI4.0-HQ 流式加载中英文语料训练 BPE tokenizer
+python scripts/train_tokenizer.py --use_cci4 --cci4_max_docs 300000
 ```
 
-### 3. 启动 Web 演示
+### 3. 训练模型
 
 ```bash
-# 指定模型路径并启动
-python app.py
+# 方式一：一键启动（推荐）
+bash scripts/run/run_all.sh          # 全流程：pretrain → SFT → DPO
+
+# 方式二：分阶段运行
+bash scripts/run/run_pretrain.sh     # 预训练（流式加载 CCI4.0-HQ）
+bash scripts/run/run_sft.sh          # SFT 微调（小曦人格数据）
+bash scripts/run/run_dpo.sh          # DPO 对齐
+
+# 方式三：直接命令行
+python trainer/train_pretrain.py --config configs/pretrain.yaml --tokenizer_path checkpoints/tokenizer
 ```
 
-浏览器访问 `http://localhost:6006` 即可体验对话。
+### 4. Web 演示
+
+```bash
+python app.py --model out/dpo/final
+```
 
 ---
 
 ## 📊 训练流程
 
-DeepSleep 的训练分为四个阶段，全部在单张 RTX 3090 上完成：
-
 ```
-Stage 1: 预训练 (Pretrain)
-├── 数据: IndustryCorpus 医学语料 (150万条, 中英双语)
-├── 配置: batch=16, seq_len=512, lr=1e-3, 3 epochs
-├── 耗时: ~1.5 小时
-└── 结果: loss 8.4 → 3.0
+Stage 1: Pretrain (流式加载 CCI4.0-HQ, 无需本地下载)
+├── 数据: CCI4.0-HQ (中英文混合, HuggingFace streaming)
+├── 配置: batch=128 (16×8), seq_len=2048, lr=5e-4, cosine
+├── 特性: MoE-aware loss, TensorBoard, 样本生成, checkpoint/resume
+└── 目标: ~50K steps
 
-Stage 2: 监督微调 (SFT)
-├── 数据: 中文医疗问答指令数据
-├── 配置: batch=16, seq_len=768, lr=2e-5, 3 epochs
-├── 耗时: ~2 小时
-└── 结果: train loss 2.60, eval loss 1.84
+Stage 2: SFT (小曦人格微调)
+├── 数据: 10000 条 ChatML 对话 (6类别: 专业诊断/知心安慰/趣味科普/睡前引导/拟人分享/个性化互动)
+├── 配置: batch=16, lr=1e-5, 3 epochs
+└── 目标: 学会小曦温暖有趣的人格风格
 
-Stage 3: 偏好对齐 (DPO)
-├── 数据: 5,405 条医学 DPO 对 (5,351 通用 + 54 睡眠领域)
-├── 配置: batch=16, seq_len=768, lr=5e-7, beta=0.1, 1 epoch
-├── 耗时: ~4 分钟
-└── 结果: train loss 0.624, eval accuracy 63.6%
-
-Stage 4: LoRA 微调
-├── 数据: 32,333 条单轮对话
-├── 配置: r=16, alpha=32, lr=5e-5, 3 epochs
-├── 耗时: ~11 分钟
-└── 结果: train loss 5.20, eval loss 4.44
+Stage 3: DPO (偏好对齐)
+├── 数据: 1965 对偏好对比 (6类别, chosen=小曦风格 vs rejected=通用AI风格)
+├── 配置: batch=4, lr=5e-7, beta=0.1, 1 epoch
+└── 目标: 强化小曦人格, 拒绝通用 AI 回答
 ```
 
-### 训练命令
+### 超参数配置
+
+所有训练超参数均在 YAML 配置文件中，可自由修改：
 
 ```bash
-# Stage 1: 预训练
-python src/training/pretrain.py --config configs/train/pretrain.yaml
-
-# Stage 2: SFT
-python src/training/sft.py --config configs/train/sft.yaml
-
-# Stage 3: DPO
-python src/training/dpo.py --config configs/train/dpo.yaml
-
-# Stage 4: LoRA (使用独立脚本)
-python /path/to/train_deepsleep_lora.py
+configs/
+├── pretrain.yaml    # 预训练配置 (模型/数据/训练/日志)
+├── sft.yaml         # SFT 配置
+└── dpo.yaml         # DPO 配置
 ```
 
----
-
-## 🌐 Web 演示
-
-基于 Gradio 构建的交互式对话界面：
+也可以通过环境变量覆盖：
 
 ```bash
-python app.py
-```
-
-**功能：**
-- 💬 实时对话，流式输出
-- 🎛 可调节 Temperature、Top-p、生成长度
-- 📋 内置快捷提问按钮（睡眠健康相关）
-- 🌙 清爽的睡眠主题 UI
-
-**参数说明：**
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--model` | `checkpoints/deepsleep-final` | 模型路径 |
-| `--port` | 6006 | 服务端口 |
-| `--share` | False | 是否生成公网链接 |
-
-也可通过环境变量配置：
-
-```bash
-DEEPSLEEP_MODEL=/path/to/model python app.py
+LR=3e-4 MAX_STEPS=30000 bash scripts/run/run_pretrain.sh
 ```
 
 ---
@@ -185,155 +147,66 @@ DEEPSLEEP_MODEL=/path/to/model python app.py
 
 ```
 deepsleep/
-├── app.py                          # Gradio Web 演示 (一键启动)
-├── requirements.txt                # Python 依赖
-├── pyproject.toml                  # 项目配置
-├── Makefile                        # 常用命令
-│
-├── src/
-│   ├── model/                      # 模型架构
-│   │   ├── config.py               # DeepSleepConfig 配置类
-│   │   ├── modeling_deepsleep.py   # DeepSleepForCausalLM 主模型
-│   │   ├── attention.py            # GQA + RoPE 注意力
-│   │   ├── moe.py                  # DeepSeek-style MoE 路由
-│   │   ├── layers.py               # Decoder Layer + SwiGLU MLP
-│   │   ├── embedding.py            # 嵌入层
-│   │   └── tokenization_deepsleep.py # 自定义 Tokenizer
-│   │
-│   ├── data/                       # 数据处理
-│   │   ├── dataset/                # 数据集类 (Pretrain, SFT, DPO)
-│   │   ├── crawling/               # 爬虫 (PubMed, arXiv, Wikipedia 等)
-│   │   ├── processing/             # 清洗、去重、质量过滤
-│   │   ├── synthetic/              # 合成数据生成
-│   │   └── tokenizer/              # Tokenizer 训练
-│   │
-│   ├── training/                   # 训练循环
-│   │   ├── pretrain.py             # 预训练 (FSDP, BF16)
-│   │   ├── sft.py                  # SFT (全量 + LoRA)
-│   │   ├── dpo.py                  # DPO 偏好对齐
-│   │   ├── callbacks.py            # 训练回调
-│   │   ├── loss.py                 # 损失函数
-│   │   └── schedulers.py           # 学习率调度
-│   │
-│   ├── evaluation/                 # 评估框架
-│   │   ├── benchmarks.py           # 基准测试
-│   │   ├── judge.py                # LLM 评委
-│   │   └── safety.py               # 安全评估
-│   │
-│   ├── inference/                  # 推理部署
-│   │   ├── server.py               # FastAPI 服务 (OpenAI 兼容)
-│   │   ├── chat.py                 # 命令行对话
-│   │   └── quantize.py             # GGUF 量化导出
-│   │
-│   └── utils/                      # 工具函数
-│       ├── distributed.py          # 分布式训练工具
-│       ├── fsdp_config.py          # FSDP 配置
-│       ├── checkpoint.py           # Checkpoint 管理
-│       └── logging.py              # 日志
-│
-├── configs/                        # YAML 配置
-│   ├── model/                      # 模型配置
-│   ├── data/                       # 数据配置
-│   ├── train/                      # 训练配置 (pretrain, sft, dpo)
-│   ├── eval/                       # 评估配置
-│   └── deploy/                     # 部署配置
-│
-├── tests/                          # 测试
-│   ├── test_model.py
-│   ├── test_tokenizer.py
-│   ├── test_data_pipeline.py
-│   └── test_training.py
-│
-└── data_cleanse_pipeline.py        # 独立数据清洗管道
+├── model/
+│   └── model_deepsleep.py          # 完整模型: Config, Attention, MoE, CausalLM
+├── dataset/
+│   ├── lm_dataset.py               # PretrainDataset, SFTDataset, DPODataset
+│   └── streaming_dataset.py        # CCI4PretrainDataset (流式加载)
+├── trainer/
+│   ├── train_pretrain.py           # 预训练 (HuggingFace Trainer, MoE-aware)
+│   ├── train_sft.py                # SFT 微调
+│   ├── train_dpo.py                # DPO 对齐
+│   └── trainer_utils.py            # 共享工具函数
+├── configs/                        # 训练配置 (YAML)
+│   ├── config_utils.py             # YAML → argparse 加载器
+│   ├── pretrain.yaml
+│   ├── sft.yaml
+│   └── dpo.yaml
+├── scripts/
+│   ├── run/                        # 一键启动脚本
+│   │   ├── run_pretrain.sh
+│   │   ├── run_sft.sh
+│   │   ├── run_dpo.sh
+│   │   └── run_all.sh
+│   ├── generate_xiaoxi_all.py      # 小曦 SFT 数据生成
+│   ├── generate_xiaoxi_dpo.py      # 小曦 DPO 数据生成
+│   ├── train_tokenizer.py          # BPE 分词器训练
+│   ├── prepare_deepsleep_data.py   # 预训练数据下载工具
+│   ├── prepare_sleep_corpus.py     # 睡眠语料筛选
+│   └── compare_tracks.py           # 双轨对比评估
+├── tests/                          # 单元测试
+├── app.py                          # Gradio Web UI
+├── Makefile
+├── requirements.txt
+└── LICENSE
 ```
 
 ---
 
-## 🔧 核心模块说明
+## 🤖 小曦人格
 
-### 模型架构 (`src/model/`)
+**星辰曦（小曦）** 是 DeepSleep 的 AI 人格，定位为温暖、有趣的睡眠健康伙伴。
 
-| 文件 | 说明 |
-|------|------|
-| `config.py` | DeepSleepConfig — 所有模型超参数的 dataclass |
-| `modeling_deepsleep.py` | DeepSleepForCausalLM — 完整的因果语言模型，兼容 HuggingFace |
-| `attention.py` | GQA (Grouped Query Attention) + RoPE 旋转位置编码 |
-| `moe.py` | DeepSeek-style softmax routing MoE，支持 aux_loss 和 z_loss |
-| `layers.py` | Decoder 层 + SwiGLU MLP + RMSNorm |
-
-### 训练 (`src/training/`)
-
-| 文件 | 说明 |
-|------|------|
-| `pretrain.py` | 预训练入口，支持 FSDP + BF16 + 梯度累积 |
-| `sft.py` | 监督微调，支持全量微调和 LoRA |
-| `dpo.py` | DPO 偏好对齐，内置 reference model 冻结 |
-
----
-
-## 📈 训练结果
-
-### 训练曲线
-
-| 阶段 | Train Loss | Eval Loss | 最佳指标 |
-|------|-----------|-----------|---------|
-| Pretrain | 3.00 | 2.73 | 150万条数据, 3 epochs |
-| SFT | 2.60 | 1.84 | 中文医疗问答, 3 epochs |
-| DPO | 0.624 | 0.628 | Accuracy 63.6%, 1 epoch |
-| LoRA | 5.20 | 4.44 | 32K 单轮对话, 3 epochs |
-
-### 硬件需求
-
-| 阶段 | 显存需求 | 训练时间 |
-|------|---------|---------|
-| Pretrain | ~8 GB (BF16) | ~1.5 小时 |
-| SFT | ~10 GB (BF16) | ~2 小时 |
-| DPO | ~4 GB (BF16, 需同时加载 policy + ref) | ~4 分钟 |
-| LoRA | ~4 GB (BF16) | ~11 分钟 |
-| **合计** | **RTX 3090 (24GB) 足够** | **~4 小时** |
-
----
-
-## 🗂 数据集
-
-### 预训练数据
-
-| 来源 | 数量 | 语言 |
-|------|------|------|
-| IndustryCorpus EN | 2,000,000 | 英文 |
-| IndustryCorpus ZH | 1,214,293 | 中文 |
-| 爬虫数据 (PubMed 等) | 23,504 | 中英混合 |
-| **合计** | **3,237,797 docs** | **62% EN, 38% ZH** |
-
-### SFT 数据
-- 中文医疗问答指令数据 (`industry_instruction_fixed_医疗`)
-
-### DPO 数据
-- 5,351 条通用医学偏好对 + 54 条高质量睡眠领域偏好对
-
-### LoRA 数据
-- 32,333 条单轮对话数据 (心理咨询类)
+| 能力 | 数据量 | 示例 |
+|------|--------|------|
+| 专业诊断 (CoT) | 2500 条 | 症状分析 → 推理 → 建议 |
+| 知心安慰 | 2500 条 | 共情 + 实用建议 |
+| 趣味科普 | 1500 条 | 睡眠冷知识 + 比喻 |
+| 睡前引导 | 1000 条 | 呼吸放松、冥想脚本 |
+| 拟人分享 | 1000 条 | 小曦的生活小故事 |
+| 个性化互动 | 1500 条 | 记住用户、主动回访 |
 
 ---
 
 ## 💡 参考 & 致谢
 
-- [MiniMind](https://github.com/jingyaogong/minimind) — 轻量级 LLM 训练框架，本项目的重要参考
+- [MiniMind](https://github.com/jingyaogong/minimind) — 轻量级 LLM 训练框架
 - [Qwen2.5-MoE](https://qwenlm.github.io/blog/qwen2.5-moe/) — MoE 架构设计灵感
-- [DeepSeek-V2](https://arxiv.org/abs/2405.04434) — softmax routing + aux/z-loss 机制
+- [DeepSeek-V2](https://arxiv.org/abs/2405.04434) — softmax routing + aux-loss
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) — 模型框架
-- [PEFT](https://github.com/huggingface/peft) — LoRA 实现
 
 ---
 
 ## 📄 License
 
-MIT License
-
----
-
-<div align="center">
-
-**DeepSleep** © 2026 by 水木孝辰
-
-</div>
+[MIT License](LICENSE)

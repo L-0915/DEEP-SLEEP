@@ -1,42 +1,34 @@
-.PHONY: install format lint test train-tokenizer crawl process pretrain sft dpo eval serve clean
+.PHONY: install test tokenizer pretrain sft dpo eval serve clean
 
 install:
-	pip install -e ".[dev]"
-
-format:
-	black src/ tests/
-	ruff format src/ tests/
-
-lint:
-	ruff check src/ tests/
-	mypy src/
+	pip install -r requirements.txt
 
 test:
-	pytest tests/
+	python -m pytest tests/ -v
 
-train-tokenizer:
-	python src/data/tokenizer/train_tokenizer.py
+tokenizer:
+	python scripts/train_tokenizer.py --use_cci4
 
-crawl:
-	bash scripts/crawl_all.sh
-
-process:
-	bash scripts/process_data.sh
+tokenizer-local:
+	python scripts/train_tokenizer.py
 
 pretrain:
-	bash scripts/train_pretrain.sh
+	bash scripts/run/run_pretrain.sh
 
 sft:
-	bash scripts/train_sft.sh
+	bash scripts/run/run_sft.sh
 
 dpo:
-	bash scripts/train_dpo.sh
+	bash scripts/run/run_dpo.sh
+
+all:
+	bash scripts/run/run_all.sh
 
 eval:
-	bash scripts/run_eval.sh
+	python scripts/compare_tracks.py --tokenizer_path checkpoints/tokenizer $(ARGS)
 
 serve:
-	python src/inference/api_server.py
+	python app.py --model out/dpo/final
 
 clean:
-	rm -rf data/raw/* data/processed/* checkpoints/* output/*
+	rm -rf out/* wandb/ runs/

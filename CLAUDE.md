@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-DeepSleep is a ~201.6M parameter (~64M active per token) Mixture-of-Experts (MoE) language model purpose-built for the medical sleep health domain. It supports Chinese-English bilingual input and is designed for sleep health consultation, diagnosis assistance, and sleep medicine knowledge services.
+DeepSleep is a flexible MoE (Mixture-of-Experts) language model for the medical sleep health domain. Supports dense-only, all-MoE, and alternating architectures with optional shared experts. The persona "星辰曦（小曦）" is a warm, quirky sleep health companion.
 
-**Architecture:** Qwen2.5-MoE inspired | **Framework:** HuggingFace | **Vocab:** 32K BPE | **Context:** 8K tokens (extendable to 32K via NTK-RoPE)
+**Architecture:** Qwen2.5-MoE / MiniMind inspired | **Framework:** HuggingFace | **Vocab:** 7200 BPE | **Context:** 8K tokens (extendable via RoPE)
 
-Design spec: [docs/superpowers/specs/2026-04-07-deepsleep-design.md](docs/superpowers/specs/2026-04-07-deepsleep-design.md)
+> **重要原则：每完成一个任务，必须同步更新 CLAUDE.md 和 docs/ 下的计划文档。**
 
 ---
 
@@ -14,63 +14,51 @@ Design spec: [docs/superpowers/specs/2026-04-07-deepsleep-design.md](docs/superp
 
 ```
 deepsleep/
-├── configs/            # YAML configs (model, data, train, eval, deploy)
-├── src/
-│   ├── model/          # Model architecture (config, attention, MoE, embedding, layers)
-│   ├── data/           # Crawlers, processing, datasets, synthetic data, tokenizer
-│   ├── training/       # Pretrain, SFT, DPO training loops
-│   ├── evaluation/     # Benchmarks, judge, safety eval, inference bench
-│   ├── inference/      # API server, chat, quantization
-│   └── utils/          # Distributed, logging, FSDP, checkpointing
-├── scripts/            # Operational scripts (crawling, cleaning, training, eval)
+├── model/
+│   ├── __init__.py
+│   └── model_deepsleep.py      # ALL model code: Config, Attention, MoE, CausalLM, Tokenizer
+├── dataset/
+│   ├── __init__.py
+│   └── lm_dataset.py           # PretrainDataset, SFTDataset, DPODataset
+├── trainer/
+│   ├── __init__.py
+│   ├── trainer_utils.py        # get_lr, Logger, init_model, lm_checkpoint, SkipBatchSampler
+│   ├── train_pretrain.py       # ✅ 预训练 (HuggingFace Trainer, 流式CCI4.0-HQ, MoE-aware)
+│   ├── train_sft.py            # ✅ SFT微调 (argparse + YAML config)
+│   └── train_dpo.py            # ✅ DPO对齐 (argparse + YAML config)
+├── configs/                         # 训练配置 (YAML)
+│   ├── config_utils.py              # YAML config 加载器
+│   ├── pretrain.yaml                # 预训练配置
+│   ├── sft.yaml                     # SFT配置
+│   └── dpo.yaml                     # DPO配置
+├── scripts/
+│   ├── run/                         # 一键启动脚本
+│   │   ├── run_pretrain.sh          # 预训练
+│   │   ├── run_sft.sh               # SFT微调
+│   │   ├── run_dpo.sh               # DPO对齐
+│   │   └── run_all.sh               # 全流程 (pretrain→SFT→DPO)
+│   ├── generate_xiaoxi_all.py       # ✅ 小曦SFT数据生成 (两步分离: prompts → responses)
+│   ├── generate_xiaoxi_dpo.py       # ✅ 小曦DPO对比数据 (两步分离: prompts → pairs, ChatML格式)
+│   ├── prepare_sleep_corpus.py      # ✅ 睡眠语料筛选
+│   ├── prepare_deepsleep_data.py    # ✅ 预训练数据下载 (从HuggingFace加载CCI4.0-HQ)
+│   ├── train_tokenizer.py           # ✅ BPE分词器训练 (vocab=7200, 中英双语, 支持CCI4.0)
+│   └── compare_tracks.py            # ✅ 双轨对比评估 (自包含, 含MCQ/CoT/人格/延迟)
 ├── data/
-│   ├── cleaned/        # Cleaned unified pretrain dataset (3.2M docs, 15GB)
-│   ├── keywords/       # Sleep domain keyword lists (en/zh)
-│   ├── tokenizer_corpus/ # Tokenizer training corpus (~10GB, en+zh)
-│   └── IndustryCorpus_medicine/ # Source medical corpus (169GB, en+zh jsonl.gz)
-├── checkpoints/        # Model checkpoints (empty - training not started)
-├── output/             # Final model outputs (empty)
-├── tests/              # Unit & integration tests
-└── data_cleanse_pipeline.py  # Standalone data cleaning pipeline
+│   ├── sft/xiaoxi/
+│   │   ├── all_prompts.jsonl        # ✅ 10110条统一prompt (6类别)
+│   │   ├── xiaoxi_sft.jsonl         # ✅ ChatML SFT数据 (10000条, 6类别各达目标)
+│   │   └── .prompt_cache/           # 各类别prompt缓存
+│   └── dpo/
+│       ├── dpo_prompts.jsonl         # ✅ 2006条DPO prompt (6类别)
+│       └── xiaoxi_dpo.jsonl          # ✅ 1965对 DPO对比数据
+├── docs/                            # 设计文档, 计划
+├── tests/                           # 单元测试
+├── app.py                           # Gradio web UI
+├── Makefile
+├── pyproject.toml
+├── requirements.txt
+└── .env                             # API credentials (gitignored)
 ```
-
----
-
-## Current Progress
-
-### Completed
-
-| Phase | Status | Details |
-|-------|--------|---------|
-| **Model Architecture** | Done | DeepSleepConfig, DeepSleepForCausalLM, DeepSleepAttention (GQA + FlashAttn), DeepSleepMoE (DeepSeek-style softmax routing, aux/z-loss), SwiGLU MLP, RoPE, RMSNorm, weight tying |
-| **Tokenizer Integration** | Done | DeepSleepTokenizer (PreTrainedTokenizerFast), ChatML template, HuggingFace auto-registration |
-| **Data Crawlers** | Done | PubMed, PMC OA, arXiv, Wikipedia (en/zh), ClinicalTrials.gov, medical websites, Zhihu, general crawlers |
-| **Data Processing** | Done | Dedup (MinHash + exact), quality scoring (perplexity + heuristics), language detection (fasttext), format cleaning (HTML/PDF), safety filtering (PII + harmful content), domain scoring (BM25 + keywords) |
-| **Data Cleaning Pipeline** | Done | `data_cleanse_pipeline.py` - 4-stage pipeline: quality filter, text cleaning, privacy scrubbing, dedup. Processes IndustryCorpus data |
-| **Scripts** | Done | 30+ operational scripts for crawling, cleaning, merging, tokenizer corpus preparation |
-| **Unified Pretrain Dataset** | Done | `data/cleaned/deepsleep_pretrain_unified.jsonl` - 3,237,797 documents, 12.6GB text (62% en, 38% zh) |
-| **Tokenizer Corpus** | Done | `data/tokenizer_corpus/{en,zh}_corpus.txt` - ~5GB each, ready for BPE training |
-| **Dataset Classes** | Done | PretrainDataset (memory-mapped), SFTDataset (ChatML), DPODataset (preference pairs) |
-| **Training Loops** | Done | Pretrain (FSDP, BF16, gradient accumulation), SFT (LoRA + full), DPO (reference model) |
-| **Training Infrastructure** | Done | Callbacks (checkpoint, eval, wandb), loss functions (LM + DPO), cosine scheduler, FSDP config, distributed utils, checkpoint management |
-| **Evaluation Framework** | Done | Benchmark runner, LLM judge, safety evaluator, sleep-med QA, inference benchmark |
-| **Inference/Deploy** | Done | FastAPI server (OpenAI-compatible), chat interface, quantization (GGUF export), vLLM config |
-| **Synthetic Data** | Done | Generator, augmenter, quality filter, seed prompts for sleep domain conversations |
-| **Config System** | Done | Full YAML configs for all pipeline stages (model, data, train, eval, deploy) |
-| **Tests** | Done | test_model.py, test_tokenizer.py, test_data_pipeline.py, test_training.py |
-| **Pretrain v4** | Done | 11,718 steps, 3 epochs, loss 3.00→3.00, ~1.5h on RTX 3090. All-MoE 8层, 6 routed experts, top_k=2, d_model=768 |
-| **SFT v4** | Done | 32,625 steps, 3 epochs, train loss 2.60, eval loss 1.84. Data: industry_instruction_fixed_医疗 (中文医疗问答SFT数据) |
-| **DPO v2** | Done | 320 steps, 1 epoch, train loss 0.624, eval loss 0.628, accuracy 63.6%, margin 0.153. 5,405 pairs (5,351 general medical + 54 high-quality sleep domain) |
-
-### Not Yet Started
-
-| Phase | Status | What Needs to Be Done |
-|-------|--------|----------------------|
-| **Full Evaluation** | Not started | 用多样化 prompt 全面测试 DPO vs SFT 模型质量对比，运行 benchmark 评估 |
-| **Model Export** | Not started | Export to GGUF (edge) and vLLM format (server). scripts/export_gguf.py exists |
-| **HuggingFace Hub** | Not started | Upload final model to deepsleep-ai/deepsleep-2b |
-| **More DPO Data** | Optional | 目前仅54条高质量睡眠DPO数据，可继续补充更多（当前数据以通用医学DPO为主） |
-| **Multi-epoch DPO** | Optional | 当前 accuracy 63.6%，可尝试2-3个epoch提升对齐效果 |
 
 ---
 
@@ -80,110 +68,114 @@ deepsleep/
 # Install
 pip install -e ".[dev]"
 
-# Data
-make crawl          # Run all crawlers
-make process        # Run data processing pipeline
+# === Data Generation ===
 
-# Tokenizer
-bash scripts/train_tokenizer.sh
+# SFT数据: Step 1 - 生成全部prompt
+python scripts/generate_xiaoxi_all.py --step prompts
 
-# Training (single RTX 3090 or any CUDA GPU with >=16GB VRAM)
-python src/training/pretrain.py --config configs/train/pretrain.yaml
-python src/training/sft.py --config configs/train/sft.yaml
-python src/training/dpo.py --config configs/train/dpo.yaml
+# SFT数据: Step 2 - 生成全部responses
+python scripts/generate_xiaoxi_all.py --step responses
+
+# SFT数据: 补充生成带thinking的样本 (非CoT类别，生成新prompt+回答，追加到原文件)
+python scripts/generate_xiaoxi_all.py --step supplement
+
+# SFT数据: 查看统计
+python scripts/generate_xiaoxi_all.py --step stats
+
+# DPO数据: Step 1 - 生成prompt
+python scripts/generate_xiaoxi_dpo.py --step prompts
+
+# DPO数据: Step 2 - 生成chosen+rejected对
+python scripts/generate_xiaoxi_dpo.py --step pairs
+
+# DPO数据: 查看统计
+python scripts/generate_xiaoxi_dpo.py --step stats
+
+# 预训练数据: 从CCI4.0-HQ采样~12B tokens
+python scripts/prepare_deepsleep_data.py
+
+# 预训练数据: 用tokenizer精确计数 (推荐)
+python scripts/prepare_deepsleep_data.py --tokenizer_path checkpoints/tokenizer
+
+# 预训练数据: 仅验证已有数据
+python scripts/prepare_deepsleep_data.py --validate
+
+# === Training (single GPU, HuggingFace Trainer) ===
+
+# 一键启动 (推荐)
+bash scripts/run/run_pretrain.sh                    # 预训练
+bash scripts/run/run_sft.sh                         # SFT
+bash scripts/run/run_dpo.sh                         # DPO
+bash scripts/run/run_all.sh                         # 全流程
+
+# 用YAML配置文件
+python trainer/train_pretrain.py --config configs/pretrain.yaml --tokenizer_path checkpoints/tokenizer
+python trainer/train_sft.py --config configs/sft.yaml
+python trainer/train_dpo.py --config configs/dpo.yaml
+
+# 直接命令行 (覆盖配置)
+python trainer/train_pretrain.py --tokenizer_path checkpoints/tokenizer --learning_rate 3e-4
+python trainer/train_sft.py --config configs/sft.yaml --learning_rate 5e-6
 
 # Evaluation
-make eval           # Run benchmarks
+python scripts/compare_tracks.py \
+    --track_a out/sft_a.pth \
+    --track_b out/sft_b.pth \
+    --tokenizer_path checkpoints/tokenizer
 
 # Serving
-make serve          # Start API server
+python app.py --model /path/to/checkpoint
 
-# Quality
-make format         # black + ruff format
-make lint           # ruff + mypy
-make test           # pytest
+# Quick make targets
+make pretrain ARGS="--data_path ... --tokenizer_path ..."
+make sft ARGS="--data_path ... --from_weight ..."
+make dpo ARGS="--data_path ... --sft_checkpoint ..."
 ```
 
 ---
 
-## Unified Dataset Statistics
+## Model Architecture
 
-Source: `data/cleaned/unified_dataset_report.json`
-
-| Metric | Value |
-|--------|-------|
-| Total documents | 3,237,797 |
-| Total characters | 12,608,462,592 (~12.6 GB) |
-| English docs | 2,023,984 (62.5%) |
-| Chinese docs | 1,213,736 (37.5%) |
-| Avg doc length | 3,894 chars |
-| Median doc length | 2,764 chars |
-
-**Sources:**
-- IndustryCorpus EN: 2,000,000 docs
-- IndustryCorpus ZH (cleaned): 714,293 docs
-- IndustryCorpus ZH (raw): 500,000 docs
-- Crawled data: 23,504 docs
-
----
-
-## Model Architecture Quick Reference
+### DeepSleep MoE (~200M params)
 
 ```
-DeepSleepForCausalLM (v4 - 实际训练版本)
-├── Embedding (vocab=32K, dim=768, tied with lm_head)
-├── 8 Decoder Layers (all_moe)
-│   ├── DeepSleepAttention (GQA: 8Q/4KV heads, head_dim=96, RoPE)
-│   ├── RMSNorm (pre-norm)
-│   └── DeepSleepMoE - 6 routed + 0 shared experts, top_k=2
-│       └── DeepSeek-style softmax routing (aux_loss=0.1, z_loss=0.01)
-│       └── SwiGLU expert FFN (moe_intermediate=1472)
+DeepSleepForCausalLM
+├── Embedding (vocab=7200, d_model=768, tied with lm_head)
+├── 8 MoE Layers (all MoE, no dense layers)
+│   ├── DeepSleepAttention (GQA: 8Q/4KV heads, head_dim=96, RoPE, Flash/SDPA)
+│   └── DeepSleepMoE (8 routed experts, top_k=2, intermediate=1216)
 ├── Final RMSNorm
 └── LM Head (tied, no bias)
 
-Total: ~201.6M params | Active per token: ~64M
-Layer pattern: all_moe (全部8层都是MoE)
+Total: ~199M params | Active per token: ~64.5M (32.4% utilization)
+Special tokens: <thinking></thinking> for chain-of-thought reasoning
+
+Mainstream components: GQA · RoPE · RMSNorm · SwiGLU · Flash Attention · Pre-Norm
 ```
 
----
+### Flexible MoE Configuration
 
-## Data Pipeline Flow
+| Config | Description |
+|--------|------------|
+| `use_moe=False` | All dense layers |
+| `use_moe=True, moe_layers=None` | All layers MoE (default) |
+| `use_moe=True, moe_layers=[0,2,4..]` | Custom MoE layers |
+| `num_shared_experts>0` | Always-active shared experts |
 
-```
-IndustryCorpus (169GB gzipped) + Web Crawlers
-  → scripts/process_industry_corpus.py / data_cleanse_pipeline.py
-  → Quality Filter → Text Clean → Privacy Scrub → Dedup
-  → data/cleaned/deepsleep_pretrain_unified.jsonl (15GB, 3.2M docs)
+### Default Config
 
-Tokenizer Corpus (10GB en+zh) → train_tokenizer.sh → BPE 32K vocab
+- d_model=768, n_layers=8, n_heads=8, n_kv_heads=4, head_dim=96
+- MoE: 8 routed experts, 0 shared, top_k=2, intermediate=1216
+- All 8 layers are MoE
+- ~199M total params, ~64.5M active per token
 
-Pretrain v4 (11,718 steps, loss 3.00)
-  → SFT v4 (32,625 steps, train loss 2.60, eval loss 1.84)
-  → DPO v2 (320 steps, train loss 0.624, eval accuracy 63.6%)
-  → Final Model: /root/autodl-tmp/data/deepsleep_model_dpo_v4_r2/final_model/
-```
+### Legacy Checkpoint Compatibility
 
----
-
-## Dependencies
-
-Core: PyTorch >=2.1, transformers >=4.40, datasets >=2.18, trl >=0.8, accelerate >=0.29, deepspeed >=0.14, flash-attn >=2.5
-
-Data: biopython, arxiv, scrapy, trafilatura, wikipedia-api, pymupdf, fasttext, datasketch
-
-Training: sentencepiece, tiktoken, einops, wandb, hydra-core
-
-Serving: fastapi, uvicorn, vllm
-
-Dev: pytest, black, ruff, mypy
-
----
-
-## Known Issues / Bugs
-
-1. ~~**modeling_deepsleep.py line 580**: References undefined variable `hidden_states_out`~~ - **FIXED** 2026-04-22: 已改为 `all_hidden_states`
-2. ~~**feedforward.py duplicate**: Both `src/model/feedforward.py` and `src/model/layers.py` define `DeepSleepMLP`~~ - **FIXED** 2026-04-22: 已删除无用的 feedforward.py
-3. **Crawled data volume low**: Only 23,504 crawled docs vs 3.2M total - most data comes from IndustryCorpus, not domain-specific crawlers. Sleep domain density may be insufficient
+`DeepSleepConfig.from_legacy(config_dict)` maps old keys:
+- `hidden_size` → `d_model`
+- `num_hidden_layers` → `n_layers`
+- `layer_pattern="all_moe"` → `moe_layers=[0..N]`
+- `layer_pattern="alternating"` → `moe_layers=[odd indices]`
 
 ---
 
@@ -191,72 +183,162 @@ Dev: pytest, black, ruff, mypy
 
 | Model | Path | Key Metrics |
 |-------|------|-------------|
-| **Pretrain v4** | `/root/autodl-tmp/data/deepsleep_model_v4/final_model/` | 11,718 steps, loss 3.00, 3 epochs |
-| **SFT v4** | `/root/autodl-tmp/data/deepsleep_model_sft_v4/final_model/` | 32,625 steps, train 2.60, eval 1.84, 3 epochs |
-| **DPO v2** | `/root/autodl-tmp/data/deepsleep_model_dpo_v4_r2/final_model/` | 320 steps, train 0.624, eval 0.628, acc 63.6% |
-| **DPO v1 (deprecated)** | `/root/autodl-tmp/data/deepsleep_model_dpo_v4/` | 生成严重退化（模板数据导致"以下"重复循环），已废弃 |
-
-### Training Data
-
-| Data | Path | Details |
-|------|------|---------|
-| **SFT data** | `/root/autodl-tmp/data/industry_instruction_fixed_医疗_{train,eval}.jsonl` | 中文医疗问答SFT数据 |
-| **DPO data (merged)** | `/root/autodl-tmp/data/medical_evidence_DPO/merged_dpo_v2.jsonl` | 5,405条 (5,351 general + 54 sleep domain) |
-| **DPO data (original)** | `/root/autodl-tmp/data/medical_evidence_DPO/merged_dpo_dataset.jsonl` | 5,351条 (deepseek/dpo_answer/clinical/filter) |
-| **Sleep DPO (Claude-generated)** | `/root/autodl-tmp/data/medical_evidence_DPO/sleep_dpo_direct_{1..7}.jsonl` | 54条高质量睡眠领域DPO数据，Claude直接生成 |
-
-### Training Scripts
-
-| Script | Location |
-|--------|----------|
-| **Pretrain** | `/root/autodl-tmp/data/train_deepsleep_native.py` |
-| **SFT** | `/root/autodl-tmp/data/sft_deepsleep_native.py` |
-| **DPO** | `/root/autodl-tmp/data/train_deepsleep_dpo.py` |
-| **Sleep DPO generator** | `/root/autodl-tmp/data/medical_evidence_DPO/generate_sleep_dpo_v2.py` (script-generated, 未使用) |
-
-### Training Config (DPO)
-
-- Base model: SFT v4
-- Batch size: 4 × 4 (gradient accumulation) = 16
-- Seq length: 768
-- LR: 5e-7, beta: 0.1
-- 1 epoch, cosine schedule
-- Reference model: frozen copy of policy model
+| Pretrain | `/root/autodl-tmp/data/deepsleep_model/final_model/` | 11,718 steps, loss 3.00 |
+| SFT | `/root/autodl-tmp/data/deepsleep_model_sft/final_model/` | 32,625 steps, eval 1.84 |
+| DPO | `/root/autodl-tmp/data/deepsleep_model_dpo_r2/final_model/` | 320 steps, acc 63.6% |
 
 ---
 
-## Next Milestone: Evaluation & Deployment
+## Data Pipeline
 
-训练三阶段已全部完成。下一步：
+```
+CCI4.0-HQ (HuggingFace) → train_pretrain.py 流式加载 (无需下载到本地)
 
-1. **全面评估** — 多样化 prompt 测试，对比 SFT vs DPO 生成质量
-2. **模型导出** — GGUF 格式（边缘部署）、vLLM 配置（服务端部署）
-3. **发布** — 上传 HuggingFace Hub
+DeepSleep Pipeline:
+  Pretrain: CCI4.0-HQ 流式 → DeepSleep MoE (~199M params)
+  SFT:      generate_xiaoxi_all.py → ✅ 6类 10000条 ChatML
+  DPO:      generate_xiaoxi_dpo.py → ✅ 1965对 6类别+6反面风格 ChatML
+
+  小曦人格SFT 6类数据 (10000条已达标):
+    1. 专业诊断CoT  2500条  (含 <thinking></thinking> 推理)
+    2. 知心安慰     2500条
+    3. 趣味科普     1500条
+    4. 睡前引导     1000条
+    5. 拟人分享     1000条
+    6. 个性化互动   1500条
+```
 
 ---
 
-## Important Notes for Development
+## Data Generation Status
 
-- **实际模型规模**: ~201.6M 总参数（非最初设计的1.9B），8层全MoE，6个routed expert + 0个shared expert，top_k=2，d_model=768，vocab_size=32K。每token激活约64M参数。
-- **单卡即可训练**: 单张 RTX 3090 (24GB) 完成全部训练（Pretrain ~1.5h + SFT ~2h + DPO ~4min）。DPO阶段需同时加载policy+reference两个模型，约需1.6GB显存。
-- **训练完成**: Pretrain v4 → SFT v4 → DPO v2 三阶段全部完成。最终模型在 `/root/autodl-tmp/data/deepsleep_model_dpo_v4_r2/final_model/`。
-- **Data is gitignored**: `data/raw/`, `data/processed/`, `data/tokenized/`, `data/sft/`, `data/dpo/` are in `.gitignore`. Only `data/cleaned/`, `data/keywords/`, and `data/tokenizer_corpus/` are tracked.
-- **Model files gitignored**: `*.bin`, `*.pt`, `*.safetensors`, `*.gguf` are excluded from git.
-- **Cost estimate**: 单卡 3090 云租用约 2-3 元/小时，完整训练管线预估几十元级别。
+### BPE 分词器 (train_tokenizer.py)
+
+| 属性 | 值 |
+|------|-----|
+| 类型 | BPE (Byte-Pair Encoding) |
+| Vocab size | 7200 |
+| 特殊 tokens | `<pad>(0)`, `<\|im_start\|>(1)`, `<\|im_end\|>(2)`, `<unk>(3)`, `<s>(4)`, `</s>(5)`, `<thinking>(6)`, `</thinking>(7)`, `<summary>(8)` |
+| Normalizer | 无 (byte-level BPE) |
+| Pre-tokenizer | GPT-4 style regex split |
+| ChatML 模板 | `<\|im_start\|>role\ncontent<\|im_end\|>\n` |
+
+**训练语料：**
+
+| 数据源 | 语言 | 内容 | 条数 |
+|--------|------|------|------|
+| `data/sft/xiaoxi/xiaoxi_sft.jsonl` | 中文 | 小曦SFT对话 (6类) | ~10000 |
+| `data/dpo/xiaoxi_dpo.jsonl` | 中文 | 小曦DPO偏好对比 | ~1965 |
+| `data/sft/xiaoxi/all_prompts.jsonl` | 中文 | SFT prompt (6类) | ~10110 |
+| `pubmedqa/data/ori_pqal.json` | 英文 | PubMed生物医学问答 | 1000 |
+| **合计** | | | **~20081 segments** |
+
+> **说明**: 由于网络不可用，未下载额外英文语料。英文覆盖主要靠 PubMedQA。后续可补充英文语料重新训练。
+
+```bash
+python scripts/train_tokenizer.py  # 重新训练分词器
+```
+
+### SFT 数据生成 (generate_xiaoxi_all.py)
+
+| 步骤 | 状态 | 详情 |
+|------|------|------|
+| Prompt生成 (6类别) | ✅ 完成 | 10110条已缓存 |
+| Response生成 | ✅ 完成 | 10000条已生成, 6类别各达目标 |
+
+> **2026-05-22 完成**: SFT数据扩容至10000条全部完成。各类别均达标：专业诊断2500、知心安慰2500、趣味科普1500、睡前引导1000、拟人分享1000、个性化互动1500。
+
+| 类别 | 条数 | 目标 | 状态 |
+|------|------|------|------|
+| 专业诊断(CoT) | 2500 | 2500 | ✅ |
+| 知心安慰 | 2500 | 2500 | ✅ |
+| 趣味科普 | 1500 | 1500 | ✅ |
+| 睡前引导 | 1000 | 1000 | ✅ |
+| 拟人分享 | 1000 | 1000 | ✅ |
+| 个性化互动 | 1500 | 1500 | ✅ |
+| **合计** | **10000** | **10000** | **✅** |
+
+### DPO 数据生成 (generate_xiaoxi_dpo.py)
+
+| 步骤 | 状态 | 详情 |
+|------|------|------|
+| Prompt生成 (6类别) | ✅ 完成 | 2006条 |
+| Pair生成 | ✅ 完成 | 1965/2006 对 (chosen+rejected) |
+
+| 类别 | 条数 |
+|------|------|
+| 专业诊断(CoT) | 800 |
+| 知心安慰 | 403 |
+| 趣味科普 | 300 |
+| 睡前引导 | 163 |
+| 拟人分享 | 150 |
+| 个性化互动 | 149 |
+| **合计** | **1965** |
+
+输出格式：`messages`(共享前缀) + `chosen`/`rejected`(string)，直接对接 `DPODataset`。
+
+### 预训练数据 (流式加载 CCI4.0-HQ)
+
+| 步骤 | 状态 | 详情 |
+|------|------|------|
+| CCI4.0-HQ 流式预训练 | ❌ 未开始 | train_pretrain.py 直接从 HF 流式加载，无需下载 |
+
+> 预训练采用 HuggingFace 流式加载（`CCI4PretrainDataset`），无需本地下载。也可用 `scripts/prepare_deepsleep_data.py` 提前下载到本地。
+
+---
+
+## Training Pipeline
+
+```
+Stage 1: Pretrain → bash scripts/run/run_pretrain.sh
+  数据: CCI4.0-HQ 流式加载 | 配置: configs/pretrain.yaml
+  HuggingFace Trainer + MoE-aware loss + TensorBoard + checkpoint/resume
+
+Stage 2: SFT → bash scripts/run/run_sft.sh
+  数据: 10000条小曦SFT | 配置: configs/sft.yaml
+
+Stage 3: DPO → bash scripts/run/run_dpo.sh
+
+---
+
+## Known Issues
+
+### `train_sft.py` 缺 LoRA 支持
+
+计划添加 `--use_lora` 参数，暂未实现。
+
+---
+
+## Next Steps (Remaining Work)
+
+1. ~~**SFT Response 生成 (3500条)**~~ — ✅ 已完成
+2. ~~**DPO 数据生成**~~ — ✅ 已完成，1965/2006对
+3. ~~**修复 import 断裂脚本**~~ — ✅ 已完成
+4. ~~**SFT 数据扩容至10000条**~~ — ✅ 已完成 (10000/10000, 6类别各达标)
+5. ~~**架构修复 199M/64.5M MoE + configs/ + shell脚本**~~ — ✅ 已完成
+6. **Pretrain** — `bash scripts/run/run_pretrain.sh` (流式CCI4.0-HQ)
+7. **SFT** — `bash scripts/run/run_sft.sh` (10000条小曦SFT)
+8. **DPO** — `bash scripts/run/run_dpo.sh` (1965对DPO)
+9. **评估** — `python scripts/compare_tracks.py`
+10. **模型导出与发布** — HuggingFace格式导出 + Gradio demo
 
 ---
 
 ## Update Log
 
-- **2026-04-07**: Project initialized, design spec approved
-- **2026-04-07 ~ 04-09**: All source code modules written (model, data, training, eval, inference, utils)
-- **2026-04-09 ~ 04-15**: Data crawling campaigns (PubMed, PMC, arXiv, Wikipedia, medical sites, Zhihu)
-- **2026-04-15 ~ 04-17**: Data cleaning and merging (IndustryCorpus + crawled data → unified dataset)
-- **2026-04-19**: Unified pretrain dataset finalized: 3.2M docs, 15GB
-- **2026-04-20**: Tokenizer corpus prepared: ~10GB (5GB en + 5GB zh)
-- **2026-04-22**: CLAUDE.md created - project status: code complete, data collected, training not started
-- **2026-04-22**: Updated training hardware requirement - 参考 MiniMind，单卡 RTX 3090 即可训练，无需 A100/H100 集群
-- **2026-04-25**: Pretrain v4 完成 - 11,718 steps, loss 3.00, all-MoE 8层, DeepSeek-style routing
-- **2026-04-26**: SFT v4 完成 - 32,625 steps, train loss 2.60, eval loss 1.84, 中文医疗问答
-- **2026-04-27**: DPO v1 完成（废弃）- 模板化DPO数据导致生成严重退化，"以下"重复循环
-- **2026-04-27**: DPO v2 完成 - 去掉模板数据，使用5,405条优质数据，生成质量正常，train loss 0.624, eval accuracy 63.6%
+- **2026-05-22**: 架构确定为199M/64.5M MoE + 工业级训练配置 — 模型改为8层全MoE(8 routed experts, 0 shared, top_k=2, intermediate=1216) → ~199M total / ~64.5M active。创建 `configs/` 目录(pretrain/sft/dpo YAML配置 + config_utils.py加载器)。创建 `scripts/run/` 一键启动脚本(run_pretrain/sft/dpo/all.sh)。更新 README.md 完整重写。添加 MIT LICENSE。更新 .gitignore, Makefile, requirements.txt。
+- **2026-05-22**: 预训练脚本重写 + 模型架构修复 — 用 HuggingFace Trainer 重写 `train_pretrain.py`（流式CCI4.0-HQ, MoE-aware loss, checkpoint/resume, TensorBoard, 样本生成回调）。新建 `dataset/streaming_dataset.py` 流式数据集。修改 `scripts/train_tokenizer.py` 支持 CCI4.0 中英文语料。修复模型 intermediate_size 默认值（dense=2048, MoE=1472），总参数从 104M 修正为 ~182M。统一所有训练脚本 vocab_size=7200。`train_tokenizer.py` 从 trainer/ 移到 scripts/。
+- **2026-05-22**: SFT数据10000条全部完成 + DPO数据1965对 — SFT 6类别各达目标(专业诊断2500、知心安慰2500、趣味科普1500、睡前引导1000、拟人分享1000、个性化互动1500)。DPO数据扩容至1965对(专业800、知心403、趣味300、睡前163、拟人150、互动149)。DPO prompt 2006条。全部数据生成完成，进入训练准备阶段。下一任务：预训练数据准备 + Track B Pretrain。
+- **2026-05-22**: Tokenizer训练 + 预训练测试 — 训练 7200 vocab BPE 分词器 (语料: SFT/DPO/PubMedQA ~15969 segments)。创建 `train_tokenizer.py` 和 `test_pretrain.py` 脚本。预训练流程验证通过 (123M params, 75 steps, loss 10.48→0.38)。模型默认 vocab_size 改为 7200。
+- **2026-05-22**: SFT数据扩容至10000条 — 将 `ALL_CATEGORIES` 目标从 3500 提升至 10000（专业诊断2500、知心安慰2500、趣味科普1500、睡前引导1000、拟人分享1000、个性化互动1500）。将 prompt 生成改为全并发模式：拆分 `_generate_one_batch` 单批生成函数，`generate_all_prompts` 将所有批次一次性提交到 ThreadPoolExecutor（默认20 workers），与 response 生成一致。断点续生：已有 prompt 去重追加，已有 response 跳过。
+- **2026-05-22**: 修复SFT thinking不一致 — 专业诊断(CoT) 99.4% 含 thinking，其他5类无 thinking（与 DPO 数据格式不一致）。修改 `generate_xiaoxi_all.py`：所有类别 system_prompt 加入 thinking 格式要求，`_generate_one` 增加 thinking 合规校验+重试，新增 `--step supplement` 模式为非CoT类别补充 ~310 条带 thinking 数据。更新 CLAUDE.md。
+- **2026-05-22**: 修复脚本问题 — 删除废弃的 `generate_cot_data.py` 和 `generate_dpo_data.py`（已被 `generate_xiaoxi_all.py` 和 `generate_xiaoxi_dpo.py` 替代）；重写 `compare_tracks.py` 为自包含脚本（嵌入MCQ题目、评估逻辑，使用 DeepSleep 模型加载）；重写 `prepare_deepsleep_data.py` 改为从 HuggingFace 加载 CCI4.0-HQ 子集并采样 ~12B tokens；更新 CLAUDE.md 和计划文档。
+- **2026-05-21**: DPO脚本重写 — 修复格式(输出ChatML消息列表), 复用XIAOXI_IDENTITY完整人格, 覆盖6类别(含思考链), 6种rejected风格, 默认1500条, 并发生成。
+- **2026-05-21**: SFT数据生成完成 (3564条responses全部生成), DPO/预训练数据未开始。
+- **2026-05-21**: SFT数据生成中 (448/3500 responses), DPO/预训练数据未开始。更新CLAUDE.md和计划文档。
+- **2026-05-21**: 架构重构 — 合并8个模型文件到 `model_deepsleep.py`, 废弃YAML/OmegaConf改用argparse, 修复所有review bug, 采用MiniMind模式。创建 `generate_xiaoxi_all.py` (两步分离SFT生成) 和 `generate_xiaoxi_dpo.py` (DPO对比)。创建 `prepare_deepsleep_data.py` (预训练数据下载)。`.env` 配置API key。
+- **2026-05-20**: 创建MoE多共享专家, think tokens, CoT/DPO生成器, 评估基准, 小曦人格定义
+- **2026-04-27**: DPO训练完成 (320 steps, 63.6% accuracy)
+- **2026-04-26**: SFT训练完成 (32,625 steps, eval loss 1.84)
+- **2026-04-25**: Pretrain完成 (11,718 steps, loss 3.00)
+- **2026-04-07**: 项目初始化
